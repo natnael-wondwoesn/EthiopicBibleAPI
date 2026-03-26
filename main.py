@@ -1,23 +1,43 @@
 from fastapi import FastAPI, HTTPException
-from typing import Optional
-import json
-import os
-from schemas import Book, Chapter  
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from contextlib import asynccontextmanager
+from schemas import Book, Chapter
+from bible_data import load_all_books, get_book as lookup_book
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    load_all_books()
+    yield
+
 
 app = FastAPI(
     title="Ethiopic Bible API",
     description="An API for accessing the books of the Ethiopic Bible in Amharic.",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
-DATA_DIR = "Books/"
+# GZip compression for responses > 500 bytes
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
-def load_book(book_name: str):
-    file_path = os.path.join(DATA_DIR, f"{book_name.lower()}.json")
-    if not os.path.isfile(file_path):
+# CORS — allow all origins (tighten in production if needed)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def get_book_data(book_name: str) -> dict:
+    """Look up a book from the in-memory cache."""
+    data = lookup_book(book_name)
+    if data is None:
         raise HTTPException(status_code=404, detail="Book not found")
-    with open(file_path, "r", encoding="utf-8") as file:
-        return json.load(file)
+    return data
 
 @app.get("/book/{book_name}", response_model=Book, summary="Retrieve a Book")
 async def get_book(book_name: str):
@@ -91,12 +111,11 @@ async def get_book(book_name: str):
     - የይሁዳ መልእክት
     - የዮሐንስ ራእይ
     """
-    data = load_book(book_name)
-    return data
+    return get_book_data(book_name)
 
 @app.get("/book/{book_name}/chapter/{chapter_number}", response_model=Chapter, summary="Retrieve a Chapter", description="Fetches a specific chapter from a book by its chapter number. The chapter number should match the chapter identifier in the book's data.")
 async def get_chapter(book_name: str, chapter_number: str):
-    book = load_book(book_name)
+    book = get_book_data(book_name)
     chapter = next((ch for ch in book['chapters'] if ch['chapter'] == chapter_number), None)
     if chapter is None:
         raise HTTPException(status_code=404, detail="Chapter not found")
@@ -104,8 +123,10 @@ async def get_chapter(book_name: str, chapter_number: str):
 
 @app.get("/book/{book_name}/chapter/{chapter_number}/verse/{verse_number}", summary="Retrieve a Verse", description="Fetches a specific verse from a chapter in a book by its verse number. The verse number should be within the range of verses in the chapter.")
 async def get_verse(book_name: str, chapter_number: str, verse_number: int):
-    chapter = await get_chapter(book_name, chapter_number)
+    book = get_book_data(book_name)
+    chapter = next((ch for ch in book['chapters'] if ch['chapter'] == chapter_number), None)
+    if chapter is None:
+        raise HTTPException(status_code=404, detail="Chapter not found")
     if 0 <= verse_number < len(chapter['verses']):
         return {"verse": verse_number, "text": chapter['verses'][verse_number]}
-    else:
-        raise HTTPException(status_code=404, detail="Verse not found")
+    raise HTTPException(status_code=404, detail="Verse not found")

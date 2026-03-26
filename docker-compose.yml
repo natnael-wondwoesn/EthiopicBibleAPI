@@ -1,0 +1,16 @@
+services:
+  api:
+    build: .
+    environment:
+      - MODE=api
+    ports:
+      - "8000:8000"
+
+  bot:
+    build: .
+    environment:
+      - MODE=bot
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    volumes:
+      # persist subscriber list across restarts
+      - ./subscribers.txt:/app/subscribers.txt

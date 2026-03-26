@@ -1,0 +1,20 @@
+services:
+  # Free web service — the Bible API
+  - type: web
+    name: ethiopic-bible-api
+    runtime: docker
+    plan: free
+    envVars:
+      - key: MODE
+        value: api
+
+  # Free background worker — the Telegram bot
+  - type: worker
+    name: ethiopic-bible-bot
+    runtime: docker
+    plan: free
+    envVars:
+      - key: MODE
+        value: bot
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false  # set manually in Render dashboard
