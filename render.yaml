@@ -9,3 +9,8 @@ services:
         value: both
       - key: TELEGRAM_BOT_TOKEN
         sync: false  # set manually in Render dashboard
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          name: ethiopic-bible
+          type: web
+          property: url

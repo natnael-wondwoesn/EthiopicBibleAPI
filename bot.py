@@ -14,7 +14,8 @@ Scheduled verses are sent to all users who have typed /subscribe.
 
 import os
 import logging
-from datetime import time, datetime
+import httpx
+from datetime import time, datetime, timedelta
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -39,6 +40,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "")  # set automatically by Render
+KEEP_ALIVE_INTERVAL = 10 * 60  # 10 minutes in seconds
 
 # Simple file-based subscriber persistence
 SUBSCRIBERS_FILE = os.path.join(os.path.dirname(__file__), "subscribers.txt")
@@ -247,6 +250,21 @@ async def _broadcast(ctx: ContextTypes.DEFAULT_TYPE, text: str):
         _save_subscribers(subscribers)
 
 
+# ─── Keep-alive ping ──────────────────────────────────────────────────
+
+async def keep_alive_ping(ctx: ContextTypes.DEFAULT_TYPE):
+    """Ping our own /health endpoint to prevent Render free tier from sleeping."""
+    if not RENDER_URL:
+        return
+    url = f"{RENDER_URL}/health"
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, timeout=10)
+            logger.info("Keep-alive ping %s → %s", url, resp.status_code)
+    except Exception as e:
+        logger.warning("Keep-alive ping failed: %s", e)
+
+
 # ─── Main ─────────────────────────────────────────────────────────────
 
 def main():
@@ -282,6 +300,15 @@ def main():
     job_queue = app.job_queue
     job_queue.run_daily(send_morning_verse, time=time(hour=6, minute=0))
     job_queue.run_daily(send_evening_verse, time=time(hour=20, minute=0))
+
+    # Keep-alive: ping /health every 10 min to prevent Render free tier sleep
+    if RENDER_URL:
+        job_queue.run_repeating(
+            keep_alive_ping,
+            interval=timedelta(seconds=KEEP_ALIVE_INTERVAL),
+            first=timedelta(seconds=30),  # first ping 30s after startup
+        )
+        logger.info("Keep-alive enabled — pinging %s/health every %ds", RENDER_URL, KEEP_ALIVE_INTERVAL)
 
     logger.info("Bot starting — scheduled verses at 06:00 and 20:00 UTC")
     app.run_polling()

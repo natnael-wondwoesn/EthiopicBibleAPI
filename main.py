@@ -32,6 +32,12 @@ app.add_middleware(
 )
 
 
+@app.get("/health", summary="Health Check")
+async def health():
+    """Returns service status. Used by the keep-alive ping to prevent Render free tier from sleeping."""
+    return {"status": "ok"}
+
+
 def get_book_data(book_name: str) -> dict:
     """Look up a book from the in-memory cache."""
     data = lookup_book(book_name)
